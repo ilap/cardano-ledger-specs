@@ -57,11 +57,13 @@ baseTypesTests = do
         ],
       testGroup
         "JSON"
-        [ testProperty "ToJSON/FromJSON roundtrip exactly" $ \ui ->
+        [ testProperty "ToJSON/FromJSON roundtrip up to an epsilon" $ \ui ->
             within 500000 $
               case eitherDecode (encode ui) of
                 Left err -> error err
-                Right ui' -> (ui :: UnitInterval) === ui'
+                Right ui' ->
+                  abs (unitIntervalToRational ui - unitIntervalToRational ui')
+                    < 1e-18
         ]
     ]
   where
