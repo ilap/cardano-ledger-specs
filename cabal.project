@@ -61,14 +61,15 @@ source-repository-package
 source-repository-package
   type: git
   location: https://github.com/input-output-hk/plutus
-  tag: c89e13e66c5bef628a1f7ea3a3732951be8be8ba
-  --sha256: 0hdck39i4yv656phxjy5ppqgzrq7x3q4b5rf8vj7hrzcs0aggl8r
+  tag: 2a2c86a879591e2152ed2519606f3acb16615c63
+  --sha256: 0i00n9ypwj74ad6v16cxkh717k2jwcpqrwk48jqngnfi6jjdpkw4
   subdir:
     plutus-ledger-api
     plutus-tx
     plutus-tx-plugin
     plutus-core
     prettyprinter-configurable
+    word-array
 
 allow-newer:
   monoidal-containers:aeson,
