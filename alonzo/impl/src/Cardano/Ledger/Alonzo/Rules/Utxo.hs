@@ -1,3 +1,4 @@
+{-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
@@ -16,31 +17,41 @@
 module Cardano.Ledger.Alonzo.Rules.Utxo where
 
 import Cardano.Binary (FromCBOR (..), ToCBOR (..), serialize)
-import Cardano.Ledger.Alonzo.Data (dataHashSize)
+import Cardano.Crypto.DSIGN.Class (DSIGNAlgorithm, sizeSigDSIGN)
+import Cardano.Ledger.Alonzo.Data (dataHashSize, getPlutusData)
+import Cardano.Ledger.Alonzo.PlutusScriptApi (scriptsNeeded)
 import Cardano.Ledger.Alonzo.Rules.Utxos (UTXOS, UtxosPredicateFailure)
-import Cardano.Ledger.Alonzo.Scripts (ExUnits (..), Prices, pointWiseExUnits)
+import Cardano.Ledger.Alonzo.Scripts
+  ( CostModel (..),
+    ExUnits (..),
+    Prices,
+    Script (..),
+    pointWiseExUnits,
+  )
 import Cardano.Ledger.Alonzo.Tx (ValidatedTx (..), minfee)
-import qualified Cardano.Ledger.Alonzo.Tx as Alonzo (ValidatedTx)
+import qualified Cardano.Ledger.Alonzo.Tx as Alonzo
 import Cardano.Ledger.Alonzo.TxBody
   ( TxOut (..),
     txnetworkid',
   )
-import qualified Cardano.Ledger.Alonzo.TxBody as Alonzo (TxBody, TxOut)
+import qualified Cardano.Ledger.Alonzo.TxBody as Alonzo (TxOut)
+import Cardano.Ledger.Alonzo.TxInfo (txInfo, valContext)
 import qualified Cardano.Ledger.Alonzo.TxSeq as Alonzo (TxSeq)
-import Cardano.Ledger.Alonzo.TxWitness (TxWitness (txrdmrs'), nullRedeemers)
+import Cardano.Ledger.Alonzo.TxWitness (RdmrPtr (..), TxWitness (txrdmrs'), nullRedeemers, unRedeemers, unTxDats)
 import Cardano.Ledger.BaseTypes
   ( Network,
     ShelleyBase,
     StrictMaybe (..),
     epochInfoWithErr,
     networkId,
+    strictMaybeToMaybe,
     systemStart,
   )
 import Cardano.Ledger.Coin
 import qualified Cardano.Ledger.Core as Core
 import Cardano.Ledger.Era (Crypto, Era, TxInBlock, ValidateScript (..))
 import qualified Cardano.Ledger.Era as Era
-import qualified Cardano.Ledger.Mary.Value as Alonzo (Value)
+import qualified Cardano.Ledger.Mary.Value as Mary (Value)
 import Cardano.Ledger.Rules.ValidationMode ((?!#))
 import Cardano.Ledger.Shelley.Constraints
   ( UsesPParams,
@@ -49,12 +60,14 @@ import Cardano.Ledger.ShelleyMA.Rules.Utxo (consumed)
 import Cardano.Ledger.ShelleyMA.Timelocks (ValidityInterval (..), inInterval)
 import qualified Cardano.Ledger.Val as Val
 import Cardano.Prelude (HeapWords (..))
-import Cardano.Slotting.EpochInfo.API (epochInfoSlotToUTCTime)
+import Cardano.Slotting.EpochInfo.API (EpochInfo, epochInfoSlotToUTCTime)
 import Cardano.Slotting.Slot (SlotNo)
+import Cardano.Slotting.Time (SystemStart)
 import Control.Iterate.SetAlgebra (dom, eval, (⊆), (◁), (➖))
 import Control.Monad.Trans.Reader (asks)
 import Control.State.Transition.Extended
 import qualified Data.ByteString.Lazy as BSL (length)
+import Data.ByteString.Short (ShortByteString)
 import Data.Coders
   ( Decode (..),
     Encode (..),
@@ -69,14 +82,22 @@ import Data.Coders
   )
 import Data.Coerce (coerce)
 import Data.Foldable (foldl', toList)
+import Data.Functor.Identity (Identity)
+import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
+import Data.Proxy (Proxy (..))
+import Data.Sequence.Strict (StrictSeq)
 import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Typeable (Typeable)
+import Data.Word (Word64)
 import GHC.Generics (Generic)
 import GHC.Records
 import NoThunks.Class (NoThunks)
 import Numeric.Natural (Natural)
+import qualified Plutus.V1.Ledger.Api as P
+import qualified PlutusCore.Evaluation.Machine.ExMemory as P
+import Shelley.Spec.Ledger.API (DCert, KeyHash, KeyRole (..), PoolParams, ScriptHash, Wdrl)
 import Shelley.Spec.Ledger.Address
   ( Addr (..),
     RewardAcnt,
@@ -325,7 +346,7 @@ utxoTransition ::
     HasField "_maxCollateralInputs" (Core.PParams era) Natural,
     -- We fix Core.Tx, Core.Value, Core.TxBody, and Core.TxOut
     Core.TxOut era ~ Alonzo.TxOut era,
-    Core.Value era ~ Alonzo.Value (Crypto era),
+    Core.Value era ~ Mary.Value (Crypto era),
     Core.TxBody era ~ Alonzo.TxBody era,
     TxInBlock era ~ Alonzo.ValidatedTx era,
     Era.TxSeq era ~ Alonzo.TxSeq era
@@ -486,7 +507,7 @@ instance
     HasField "_collateralPercentage" (Core.PParams era) Natural,
     HasField "_maxCollateralInputs" (Core.PParams era) Natural,
     -- We fix Core.Value, Core.TxBody, and Core.TxOut
-    Core.Value era ~ Alonzo.Value (Crypto era),
+    Core.Value era ~ Mary.Value (Crypto era),
     Core.TxBody era ~ Alonzo.TxBody era,
     Core.TxOut era ~ Alonzo.TxOut era,
     Era.TxSeq era ~ Alonzo.TxSeq era,
@@ -623,3 +644,139 @@ instance
   FromCBOR (UtxoPredicateFailure era)
   where
   fromCBOR = decode (Summands "UtxoPredicateFailure" decFail)
+
+data ScriptFailure c
+  = MissingRedeemer RdmrPtr
+  | InvalidScriptPurpose (Alonzo.ScriptPurpose c)
+  | MissingScript (ScriptHash c)
+  | MissingDatum (Alonzo.DataHash c)
+  | ValidationFailed P.EvaluationError
+  | UnknownTxIn (TxIn c)
+  | InvalidTxIn (TxIn c)
+  | IncompatibleBudget P.ExBudget
+
+evaluateTransactionExecutionUnits ::
+  forall era.
+  ( Era era,
+    Core.TxOut era ~ TxOut era,
+    Core.Script era ~ Script era,
+    Core.Value era ~ Mary.Value (Crypto era),
+    Core.Witnesses era ~ TxWitness era,
+    Core.TxBody era ~ Alonzo.TxBody era
+  ) =>
+  Core.Tx era ->
+  UTxO era ->
+  EpochInfo Identity ->
+  SystemStart ->
+  CostModel ->
+  Map
+    (ScriptHash (Crypto era))
+    (Either (ScriptFailure (Crypto era)) (RdmrPtr, ExUnits))
+evaluateTransactionExecutionUnits tx utxo ei sysS (CostModel costModel) =
+  Map.fromList $ map findAndCount neededPlutusScripts
+  where
+    note :: e -> Maybe a -> Either e a
+    note _ (Just x) = Right x
+    note e Nothing = Left e
+
+    txb = getField @"body" tx
+    ws = getField @"wits" tx
+    rs = unRedeemers $ getField @"txrdmrs" ws
+    dats = unTxDats $ getField @"txdats" ws
+    scripts = getField @"txscripts" ws
+    sNeeded = scriptsNeeded utxo tx
+    neededPlutusScripts = do
+      (sp, sh) <- sNeeded
+      msb <- case Map.lookup sh scripts of
+        Nothing -> pure Nothing
+        Just (TimelockScript _) -> []
+        Just (PlutusScript bytes) -> pure $ Just bytes
+      pure (sp, sh, msb)
+
+    txinfo = txInfo ei sysS utxo tx
+
+    exBudgetToExUnits :: P.ExBudget -> Maybe ExUnits
+    exBudgetToExUnits (P.ExBudget (P.ExCPU cpu) (P.ExMemory memory)) =
+      ExUnits <$> convertCost cpu <*> convertCost memory
+
+    convertCost :: P.CostingInteger -> Maybe Word64
+    convertCost ci =
+      if (i <= toInteger (maxBound :: Word64)) && (i >= 0)
+        then Just $ fromIntegral i
+        else Nothing
+      where
+        i = toInteger ci
+
+    findAndCount ::
+      ( Alonzo.ScriptPurpose (Crypto era),
+        ScriptHash (Crypto era),
+        Maybe ShortByteString
+      ) ->
+      ( ScriptHash (Crypto era),
+        Either (ScriptFailure (Crypto era)) (RdmrPtr, ExUnits)
+      )
+    findAndCount (sp, sh, mScriptBytes) = (,) sh $ do
+      r <-
+        note (InvalidScriptPurpose sp) $
+          strictMaybeToMaybe $ Alonzo.rdptr @era txb sp
+      (rdmr, _) <- note (MissingRedeemer r) $ Map.lookup r rs
+      script <- note (MissingScript sh) $ mScriptBytes
+      args <- case sp of
+        (Alonzo.Spending txin) -> do
+          txOut <- note (UnknownTxIn txin) $ Map.lookup txin (unUTxO utxo)
+          let TxOut _ _ mdh = txOut
+          dh <- note (InvalidTxIn txin) $ strictMaybeToMaybe mdh
+          dat <- note (MissingDatum dh) $ Map.lookup dh dats
+          pure [dat, rdmr, valContext txinfo sp]
+        _ -> pure [rdmr, valContext txinfo sp]
+      let pArgs = map getPlutusData args
+
+      exUnits <- case snd $ P.evaluateScriptCounting P.Quiet costModel script pArgs of
+        Left e -> Left $ ValidationFailed e
+        Right exBudget -> note (IncompatibleBudget exBudget) $ exBudgetToExUnits exBudget
+
+      pure (r, exUnits)
+
+evaluateTransactionBalance ::
+  forall era.
+  ( Era era,
+    HasField "certs" (Core.TxBody era) (StrictSeq (DCert (Crypto era))),
+    HasField "inputs" (Core.TxBody era) (Set (TxIn (Crypto era))),
+    HasField "mint" (Core.TxBody era) (Core.Value era),
+    HasField "wdrls" (Core.TxBody era) (Wdrl (Crypto era)),
+    HasField "_keyDeposit" (Core.PParams era) Coin,
+    HasField "_poolDeposit" (Core.PParams era) Coin
+  ) =>
+  Core.PParams era ->
+  UTxO era ->
+  Map (KeyHash 'StakePool (Crypto era)) (PoolParams (Crypto era)) ->
+  Core.TxBody era ->
+  Core.Value era
+evaluateTransactionBalance pp u stakepools txb = consumed pp u txb Val.<-> Shelley.produced @era pp stakepools txb
+
+evaluateTransactionFee ::
+  forall era tx.
+  ( DSIGNAlgorithm (Crypto era),
+    HasField "_minfeeA" (Core.PParams era) Natural,
+    HasField "_minfeeB" (Core.PParams era) Natural,
+    HasField "_prices" (Core.PParams era) Prices,
+    HasField "totExunits" tx ExUnits,
+    HasField "txsize" tx Integer
+  ) =>
+  Core.PParams era ->
+  tx ->
+  Word ->
+  Coin
+evaluateTransactionFee pp tx numKeyWits =
+  minfee @era pp tx Val.<+> (Coin . fromIntegral $ numKeyWits * keyWitSize)
+  where
+    keyWitSize = sizeSigDSIGN (Proxy @(Crypto era))
+
+evaluateMinLovelaceOutput ::
+  ( Era era,
+    HasField "_coinsPerUTxOWord" (Core.PParams era) Coin
+  ) =>
+  TxOut era ->
+  Core.PParams era ->
+  Coin
+evaluateMinLovelaceOutput out pp = Coin $ utxoEntrySize out * (unCoin $ getField @"_coinsPerUTxOWord" pp)
