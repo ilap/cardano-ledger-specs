@@ -69,6 +69,7 @@ import Cardano.Ledger.Shelley.Constraints
   )
 import Cardano.Slotting.Block (BlockNo (..))
 import Cardano.Slotting.Slot (EpochNo (..), EpochSize (..), SlotNo (..))
+import Control.Monad.Fix (mfix)
 import Control.SetAlgebra (biMapFromList)
 import Control.State.Transition (STS (State))
 import qualified Data.ByteString.Char8 as BS
@@ -690,7 +691,7 @@ instance
       <$> genUTCTime -- sgSystemStart
       <*> arbitrary -- sgNetworkMagic
       <*> arbitrary -- sgNetworkId
-      <*> arbitrary -- sgActiveSlotsCoeff
+      <*> mfix (\a -> if a == minBound then arbitrary else pure a) -- sgActiveSlotsCoeff
       <*> arbitrary -- sgSecurityParam
       <*> (EpochSize <$> arbitrary) -- sgEpochLength
       <*> arbitrary -- sgSlotsPerKESPeriod

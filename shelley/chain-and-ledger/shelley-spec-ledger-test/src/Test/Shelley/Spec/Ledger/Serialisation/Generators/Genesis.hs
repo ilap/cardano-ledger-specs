@@ -10,16 +10,27 @@ import Cardano.Crypto.DSIGN.Class
 import qualified Cardano.Crypto.Hash as Hash
 import Cardano.Crypto.Seed (mkSeedFromBytes)
 import Cardano.Crypto.VRF.Class
+import Cardano.Ledger.BaseTypes hiding (Seed)
 import Cardano.Ledger.Coin
 import Cardano.Ledger.Crypto (DSIGN, VRF)
 import qualified Cardano.Ledger.Crypto as CC (Crypto)
 import Cardano.Ledger.Era
+import Cardano.Ledger.Keys
+  ( GenDelegPair (..),
+    Hash,
+    KeyHash (..),
+    KeyPair (..),
+    KeyRole (..),
+    VKey (..),
+    hashKey,
+  )
 import Cardano.Prelude (Natural, Word32, Word64, Word8)
 import Cardano.Slotting.Slot (EpochNo (..), EpochSize (..))
 import Data.Fixed
 import Data.IP (IPv4, IPv6, fromHostAddress, fromHostAddress6)
 import qualified Data.Map.Strict as Map
 import Data.Proxy
+import Data.Ratio ((%))
 import qualified Data.Sequence.Strict as StrictSeq
 import qualified Data.Set as Set
 import Data.Time.Clock (NominalDiffTime, UTCTime)
@@ -30,18 +41,8 @@ import Hedgehog.Internal.Gen ()
 import Hedgehog.Range (Range)
 import qualified Hedgehog.Range as Range
 import Shelley.Spec.Ledger.Address
-import Cardano.Ledger.BaseTypes hiding (Seed)
 import Shelley.Spec.Ledger.Credential
 import Shelley.Spec.Ledger.Genesis
-import Cardano.Ledger.Keys
-  ( GenDelegPair (..),
-    Hash,
-    KeyHash (..),
-    KeyPair (..),
-    KeyRole (..),
-    VKey (..),
-    hashKey,
-  )
 import Shelley.Spec.Ledger.PParams
 import Shelley.Spec.Ledger.Scripts
 import Shelley.Spec.Ledger.TxBody
@@ -53,7 +54,7 @@ genShelleyGenesis =
     <$> genUTCTime
     <*> genNetworkMagic
     <*> Gen.element [Mainnet, Testnet]
-    <*> genUnitInterval
+    <*> genActiveCoeff
     <*> Gen.word64 (Range.linear 1 1000000)
     <*> fmap EpochSize genSecurityParam
     <*> Gen.word64 (Range.linear 1 100000)
@@ -65,6 +66,10 @@ genShelleyGenesis =
     <*> fmap Map.fromList genGenesisDelegationList
     <*> fmap Map.fromList genFundsList
     <*> genStaking
+  where
+    genActiveCoeff = do
+      ui <- genUnitInterval
+      if ui == minBound then genActiveCoeff else pure ui
 
 genStaking :: CC.Crypto crypto => Gen (ShelleyGenesisStaking crypto)
 genStaking =
@@ -205,10 +210,17 @@ genProtVer =
     <$> genNatural (Range.linear 0 1000)
     <*> genNatural (Range.linear 0 1000)
 
+-- | Only numbers in Scientific format can roundtrip JSON, so we only generate numbers
+-- that can be represented in a decimal form and that can be represeted by Ratio Word64
 genUnitInterval :: Gen UnitInterval
 genUnitInterval = do
-  unitRational <- Gen.realFrac_ (Range.linearFrac 0.01 1)
-  maybe genUnitInterval pure $ unitIntervalFromRational unitRational
+  let maxExp = 19
+  denom <- (10 ^) <$> Gen.int (Range.linear 0 maxExp)
+  num <- Gen.word64 (Range.linear 0 denom)
+  let r = num % denom
+  case unitIntervalFromRational $ promoteRatio r of
+    Nothing -> error $ "Could not convert rational to unit: " ++ show r
+    Just ui -> pure ui
 
 genGenesisDelegationList ::
   CC.Crypto crypto =>
