@@ -79,7 +79,7 @@ import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import Data.Maybe (fromMaybe)
 import Data.Proxy (Proxy (..))
-import Data.Ratio ((%), numerator)
+import Data.Ratio ((%), numerator, denominator)
 import Data.Sequence.Strict (StrictSeq)
 import qualified Data.Sequence.Strict as StrictSeq
 import Data.Set (Set)
@@ -93,7 +93,6 @@ import Cardano.Ledger.BaseTypes
     epochInfo,
     stabilityWindow,
     StrictMaybe(..),
-    unitIntervalPrecision,
     unitIntervalToRational,
   )
 import Shelley.Spec.Ledger.BlockChain
@@ -501,8 +500,10 @@ zero = unsafeMkUnitInterval 0
 -- this is surjective. But it should be right inverse to `fromNatural` - that
 -- is, one should be able to recover the `UnitInterval` value used here.
 unitIntervalToNatural :: UnitInterval -> Natural
-unitIntervalToNatural =
-  fromInteger . numerator . (((10 ^ unitIntervalPrecision) % 1) *) . unitIntervalToRational
+unitIntervalToNatural ui =
+  toNat ((toInteger (maxBound :: Word64) % 1) * unitIntervalToRational ui)
+  where
+    toNat r = fromInteger (numerator r `quot` denominator r)
 
 mkBlockHeader ::
   ( Mock crypto

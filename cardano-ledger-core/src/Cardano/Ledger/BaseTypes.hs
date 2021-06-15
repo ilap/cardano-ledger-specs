@@ -23,9 +23,9 @@ module Cardano.Ledger.BaseTypes
     Nonce (..),
     Seed (..),
     UnitInterval,
-    unitIntervalPrecision,
     fromScientificUnitInterval,
     fpPrecision,
+    promoteRatio,
     unitIntervalToRational,
     unitIntervalFromRational,
     invalidKey,
@@ -64,7 +64,7 @@ import Cardano.Binary
 import Cardano.Crypto.Hash
 import Cardano.Crypto.Util (SignableRepresentation (..))
 import qualified Cardano.Crypto.VRF as VRF
-import Cardano.Ledger.Serialization (decodeRecordSum, ratioToCBOR, rationalFromCBOR)
+import Cardano.Ledger.Serialization (decodeRecordSum, ratioToCBOR, ratioFromCBOR)
 import Cardano.Prelude (NFData, cborError)
 import Cardano.Slotting.EpochInfo
 import Cardano.Slotting.Time (SystemStart)
@@ -80,7 +80,6 @@ import Data.Default.Class (Default (def))
 import qualified Data.Fixed as FP (Fixed, HasResolution, resolution)
 import Data.Functor.Identity
 import Data.Maybe.Strict
-import Data.Proxy
 import Data.Ratio (Ratio, denominator, numerator, (%))
 import Data.Scientific (Scientific, scientific, base10Exponent, coefficient, normalize)
 import Data.Text (Text)
@@ -89,7 +88,6 @@ import Data.Text.Encoding (encodeUtf8)
 import Data.Word (Word16, Word64, Word8)
 import GHC.Exception.Type (Exception)
 import GHC.Generics (Generic)
-import GHC.TypeLits
 import NoThunks.Class (NoThunks (..))
 import Numeric.Natural (Natural)
 import Shelley.Spec.NonIntegral (ln')
@@ -105,12 +103,6 @@ type FixedPoint = Digits34
 
 fpPrecision :: FixedPoint
 fpPrecision = (10 :: FixedPoint) ^ (34 :: Integer)
-
--- | Maximum precision possible for unit interval when backed by a 64bit
-type RawUnitScalingParam = 19
-
-unitIntervalPrecision :: Int
-unitIntervalPrecision = fromInteger (natVal (Proxy :: Proxy RawUnitScalingParam))
 
 newtype RawUnit
   = RawUnit Word64
@@ -133,8 +125,8 @@ instance ToCBOR UnitInterval where
 
 instance FromCBOR UnitInterval where
   fromCBOR = do
-    r <- rationalFromCBOR
-    case unitIntervalFromRational r of
+    r <- ratioFromCBOR
+    case unitIntervalFromRational (promoteRatio (r :: Ratio Word64)) of
       Nothing -> cborError $ DecoderErrorCustom "UnitInterval" (Text.pack $ show r)
       Just u -> pure u
 
@@ -165,9 +157,12 @@ fromScientificUnitInterval (normalize -> num) = do
     coeff = coefficient num
     exp10 = negate (base10Exponent num)
 
+
 unitIntervalToRational :: UnitInterval -> Rational
-unitIntervalToRational (UnsafeUnitInterval r) =
-  toInteger (numerator r) % toInteger (denominator r)
+unitIntervalToRational (UnsafeUnitInterval r) = promoteRatio r
+
+promoteRatio :: Integral a => Ratio a -> Rational
+promoteRatio r = toInteger (numerator r) % toInteger (denominator r)
 
 -- | Returns `Nothing` when supplied value is not in the [0, 1] range or when precision is
 -- too high.

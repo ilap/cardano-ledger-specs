@@ -49,10 +49,10 @@ import Cardano.Ledger.BaseTypes
     Url,
     mkActiveSlotCoeff,
     mkNonceFromNumber,
+    promoteRatio,
     textToDns,
     textToUrl,
     unitIntervalFromRational,
-    unitIntervalPrecision,
   )
 import Cardano.Ledger.Coin (DeltaCoin (..))
 import qualified Cardano.Ledger.Core as Core
@@ -293,13 +293,18 @@ instance Arbitrary Nonce where
 
 instance Arbitrary UnitInterval where
   arbitrary = do
-    let denominator = 10 ^ unitIntervalPrecision
-    numerator <- choose (0, denominator)
-    let rationalUnit = numerator % denominator
-    case unitIntervalFromRational rationalUnit of
-      Just ui -> pure ui
-      Nothing ->
-        error $ "Failed to convert a rational unit: " ++ show rationalUnit
+    x :: Word64 <- arbitrary
+    y :: Word64 <- arbitrary
+    if y == 0
+      then arbitrary
+      else do
+        let ratioUnit
+              | x >= y = y % x
+              | otherwise = x % y
+        case unitIntervalFromRational $ promoteRatio ratioUnit of
+          Just ui -> pure ui
+          Nothing ->
+            error $ "Failed to convert a rational unit: " ++ show ratioUnit
 
 instance CC.Crypto crypto => Arbitrary (KeyHash a crypto) where
   arbitrary = KeyHash <$> genHash
