@@ -1342,7 +1342,7 @@ ppActiveSlotCoeff :: ActiveSlotCoeff -> PDoc
 ppActiveSlotCoeff x =
   ppRecord
     "ActiveSlotCoeff"
-    [ ("activeSlotVal", ppUnitInterval (activeSlotVal x)),
+    [ ("activeSlotVal", viaShow (activeSlotVal x)),
       ("ActiveSlotLog", ppFixedPoint (activeSlotLog x))
     ]
 

@@ -127,7 +127,7 @@ data ShelleyGenesis era = ShelleyGenesis
   { sgSystemStart :: !UTCTime,
     sgNetworkMagic :: !Word32,
     sgNetworkId :: !Network,
-    sgActiveSlotsCoeff :: !UnitInterval,
+    sgActiveSlotsCoeff :: !PositiveUnitInterval,
     sgSecurityParam :: !Word64,
     sgEpochLength :: !EpochSize,
     sgSlotsPerKESPeriod :: !Word64,
@@ -231,7 +231,7 @@ instance Era era => ToCBOR (ShelleyGenesis era) where
         <> utcTimeToCBOR sgSystemStart
         <> toCBOR sgNetworkMagic
         <> toCBOR sgNetworkId
-        <> toCBOR (unitIntervalToRational sgActiveSlotsCoeff)
+        <> toCBOR (unboundRational sgActiveSlotsCoeff)
         <> toCBOR sgSecurityParam
         <> toCBOR (unEpochSize sgEpochLength)
         <> toCBOR sgSlotsPerKESPeriod
@@ -252,9 +252,9 @@ instance Era era => FromCBOR (ShelleyGenesis era) where
       sgNetworkId <- fromCBOR
       activeSlotCoeffRational <- fromCBOR
       sgActiveSlotsCoeff <-
-        case unitIntervalFromRational activeSlotCoeffRational of
-          Just coeff | coeff /= minBound -> pure coeff
-          _ ->
+        case boundRational activeSlotCoeffRational of
+          Just coeff -> pure coeff
+          Nothing ->
             cborError $ DecoderErrorCustom "sgActiveSlotsCoeff" "Value outside of (0, 1] interval"
       sgSecurityParam <- fromCBOR
       sgEpochLength <- fromCBOR
@@ -394,17 +394,18 @@ validateGenesis
           checkQuorumSize
         ]
       checkEpochLength =
-        let minLength =
+        let activeSlotsCoeff = unboundRational sgActiveSlotsCoeff
+            minLength =
               EpochSize . ceiling $
                 fromIntegral @_ @Double (3 * sgSecurityParam)
-                  / fromRational (unitIntervalToRational sgActiveSlotsCoeff)
+                  / fromRational activeSlotsCoeff
          in if minLength > sgEpochLength
               then
                 Just $
                   EpochNotLongEnough
                     sgEpochLength
                     sgSecurityParam
-                    (unitIntervalToRational sgActiveSlotsCoeff)
+                    activeSlotsCoeff
                     minLength
               else Nothing
       checkKesEvolutions =

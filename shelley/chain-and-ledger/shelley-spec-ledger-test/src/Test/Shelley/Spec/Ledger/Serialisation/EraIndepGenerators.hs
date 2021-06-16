@@ -45,6 +45,7 @@ import Cardano.Ledger.AuxiliaryData (AuxiliaryDataHash (..))
 import Cardano.Ledger.BaseTypes
   ( ActiveSlotCoeff,
     DnsName,
+    PositiveUnitInterval,
     UnitInterval,
     Url,
     mkActiveSlotCoeff,
@@ -52,7 +53,6 @@ import Cardano.Ledger.BaseTypes
     promoteRatio,
     textToDns,
     textToUrl,
-    unitIntervalFromRational,
   )
 import Cardano.Ledger.Coin (DeltaCoin (..))
 import qualified Cardano.Ledger.Core as Core
@@ -69,7 +69,6 @@ import Cardano.Ledger.Shelley.Constraints
   )
 import Cardano.Slotting.Block (BlockNo (..))
 import Cardano.Slotting.Slot (EpochNo (..), EpochSize (..), SlotNo (..))
-import Control.Monad.Fix (mfix)
 import Control.SetAlgebra (biMapFromList)
 import Control.State.Transition (STS (State))
 import qualified Data.ByteString.Char8 as BS
@@ -78,7 +77,7 @@ import Data.IP (IPv4, IPv6, toIPv4, toIPv6)
 import qualified Data.Map.Strict as Map (empty, fromList)
 import Data.Maybe (fromJust)
 import Data.Proxy (Proxy (..))
-import Data.Ratio ((%))
+import Data.Ratio (Ratio, (%))
 import Data.Sequence.Strict (StrictSeq)
 import qualified Data.Sequence.Strict as StrictSeq
 import qualified Data.Text as T
@@ -89,14 +88,10 @@ import Data.Word (Word64, Word8)
 import Generic.Random (genericArbitraryU)
 import Numeric.Natural (Natural)
 import Shelley.Spec.Ledger.API hiding (SignedDSIGN, TxBody (..))
-import Shelley.Spec.Ledger.Address.Bootstrap
-  ( ChainCode (..),
-  )
+import Shelley.Spec.Ledger.Address.Bootstrap (ChainCode (..))
 import Shelley.Spec.Ledger.Delegation.Certificates (IndividualPoolStake (..))
 import Shelley.Spec.Ledger.EpochBoundary (BlocksMade (..))
-import Shelley.Spec.Ledger.LedgerState
-  ( FutureGenDeleg,
-  )
+import Shelley.Spec.Ledger.LedgerState (FutureGenDeleg)
 import qualified Shelley.Spec.Ledger.Metadata as MD
 import Shelley.Spec.Ledger.RewardProvenance
   ( Desirability (..),
@@ -129,7 +124,21 @@ import qualified Shelley.Spec.Ledger.STS.Prtcl as STS (PrtclState)
 import qualified Shelley.Spec.Ledger.STS.Tickn as STS
 import qualified Shelley.Spec.Ledger.STS.Utxow as STS
 import Shelley.Spec.Ledger.Tx (WitnessSetHKD (WitnessSet), hashScript)
-import Test.QuickCheck (Arbitrary, arbitrary, genericShrink, listOf, oneof, recursivelyShrink, resize, shrink, vectorOf)
+import Test.QuickCheck
+  ( Arbitrary,
+    Gen,
+    Positive (..),
+    arbitrary,
+    choose,
+    elements,
+    genericShrink,
+    listOf,
+    oneof,
+    recursivelyShrink,
+    resize,
+    shrink,
+    vectorOf,
+  )
 import Test.QuickCheck.Gen (chooseAny)
 import Test.Shelley.Spec.Ledger.ConcreteCryptoTypes (Mock)
 import Test.Shelley.Spec.Ledger.Generator.Constants (defaultConstants)
@@ -147,7 +156,7 @@ import Test.Shelley.Spec.Ledger.Serialisation.Generators.Bootstrap
   ( genBootstrapAddress,
     genSignature,
   )
-import Test.Tasty.QuickCheck (Gen, choose, elements)
+import Test.Shelley.Spec.Ledger.Utils (unsafeBoundRational)
 
 -- =======================================================
 
@@ -295,17 +304,11 @@ instance Arbitrary Nonce where
 instance Arbitrary UnitInterval where
   arbitrary = do
     x :: Word64 <- arbitrary
-    y :: Word64 <- arbitrary
-    if y == 0
-      then arbitrary
-      else do
-        let ratioUnit
-              | x >= y = y % x
-              | otherwise = x % y
-        case unitIntervalFromRational $ promoteRatio ratioUnit of
-          Just ui -> pure ui
-          Nothing ->
-            error $ "Failed to convert a rational unit: " ++ show ratioUnit
+    Positive (y :: Word64) <- arbitrary
+    let ratioUnit
+          | x >= y = y % x
+          | otherwise = x % y
+    pure $ unsafeBoundRational $ promoteRatio ratioUnit
 
 instance CC.Crypto crypto => Arbitrary (KeyHash a crypto) where
   arbitrary = KeyHash <$> genHash
@@ -576,6 +579,12 @@ instance CC.Crypto crypto => Arbitrary (OBftSlot crypto) where
   arbitrary = genericArbitraryU
   shrink = genericShrink
 
+instance Arbitrary PositiveUnitInterval where
+  arbitrary = do
+    Positive x <- arbitrary
+    Positive y <- arbitrary
+    pure $ unsafeBoundRational $ promoteRatio (if x > y then y % x else x % y :: Ratio Word64)
+
 instance Arbitrary ActiveSlotCoeff where
   arbitrary = mkActiveSlotCoeff <$> arbitrary
 
@@ -691,7 +700,7 @@ instance
       <$> genUTCTime -- sgSystemStart
       <*> arbitrary -- sgNetworkMagic
       <*> arbitrary -- sgNetworkId
-      <*> mfix (\a -> if a == minBound then arbitrary else pure a) -- sgActiveSlotsCoeff
+      <*> arbitrary -- sgActiveSlotsCoeff
       <*> arbitrary -- sgSecurityParam
       <*> (EpochSize <$> arbitrary) -- sgEpochLength
       <*> arbitrary -- sgSlotsPerKESPeriod

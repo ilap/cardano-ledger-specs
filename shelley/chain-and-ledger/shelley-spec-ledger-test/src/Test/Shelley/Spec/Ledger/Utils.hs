@@ -27,7 +27,7 @@ module Test.Shelley.Spec.Ledger.Utils
     runShelleyBase,
     testGlobals,
     maxKESIterations,
-    unsafeMkUnitInterval,
+    unsafeBoundRational,
     slotsPerKESIteration,
     testSTS,
     maxLLSupply,
@@ -75,11 +75,10 @@ import Cardano.Ledger.BaseTypes
     Network (..),
     Nonce,
     ShelleyBase,
-    UnitInterval,
+    BoundedRational (..),
     epochInfo,
     mkActiveSlotCoeff,
     mkNonceFromOutputVRF,
-    unitIntervalFromRational,
   )
 import Cardano.Ledger.Coin (Coin (..))
 import qualified Cardano.Ledger.Core as Core
@@ -120,6 +119,7 @@ import Data.Maybe (fromMaybe)
 import Data.Time.Clock.POSIX
 import Data.Typeable (Proxy (Proxy))
 import Data.Word (Word64)
+import GHC.Stack
 import Shelley.Spec.Ledger.API
   ( ApplyBlock,
     GetLedgerView,
@@ -262,10 +262,11 @@ mkAddr (payKey, stakeKey) =
     (KeyHashObj . hashKey $ vKey payKey)
     (StakeRefBase . KeyHashObj . hashKey $ vKey stakeKey)
 
--- | You vouch that argument is in [0; 1].
-unsafeMkUnitInterval :: Rational -> UnitInterval
-unsafeMkUnitInterval =
-  fromMaybe (error "could not construct unit interval") . unitIntervalFromRational
+-- | Convert to a bounded rational type why throwing an error on failure
+unsafeBoundRational :: (HasCallStack, BoundedRational r) => Rational -> r
+unsafeBoundRational r =
+  fromMaybe (error $ "Could not convert from Rational: " ++ show r) $ boundRational r
+
 
 testGlobals :: Globals
 testGlobals =
@@ -279,7 +280,7 @@ testGlobals =
       quorum = 5,
       maxMajorPV = 1000,
       maxLovelaceSupply = 45 * 1000 * 1000 * 1000 * 1000 * 1000,
-      activeSlotCoeff = mkActiveSlotCoeff . unsafeMkUnitInterval $ 0.9,
+      activeSlotCoeff = mkActiveSlotCoeff . unsafeBoundRational $ 0.9,
       networkId = Testnet,
       systemStart = SystemStart $ posixSecondsToUTCTime 0
     }

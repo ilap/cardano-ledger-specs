@@ -30,6 +30,7 @@ import Cardano.Ledger.BaseTypes
   ( Network (..),
     Nonce (..),
     StrictMaybe (..),
+    UnitInterval,
     mkNonceFromNumber,
     textToDns,
     textToUrl,
@@ -443,7 +444,7 @@ tests =
         (T (TkWord64 30)),
       checkEncodingCBOR
         "rational"
-        (unsafeMkUnitInterval (1 % 2))
+        (unsafeBoundRational (1 % 2) :: UnitInterval)
         (T (TkTag 30 . TkListLen 2 . TkWord64 1 . TkWord64 2)),
       checkEncodingCBOR
         "slot"
@@ -540,7 +541,7 @@ tests =
         ),
       -- checkEncodingCBOR "register-pool"
       let poolOwner = testKeyHash2 @C_Crypto
-          poolMargin = unsafeMkUnitInterval 0.7
+          poolMargin = unsafeBoundRational 0.7
           poolRAcnt = RewardAcnt Testnet (testStakeCred @C_Crypto)
           poolPledge = Coin 11
           poolCost = Coin 55
@@ -675,9 +676,9 @@ tests =
           emax = EpochNo 7
           nopt = 8
           a0 = 1 % 6
-          rho = unsafeMkUnitInterval $ 1 % 6
-          tau = unsafeMkUnitInterval $ 1 % 7
-          d = unsafeMkUnitInterval $ 1 % 9
+          rho = unsafeBoundRational $ 1 % 6
+          tau = unsafeBoundRational $ 1 % 7
+          d = unsafeBoundRational $ 1 % 9
           extraEntropy = NeutralNonce
           protocolVersion = ProtVer 0 1
           minUTxOValue = Coin 121
@@ -1234,7 +1235,7 @@ tests =
                 _poolVrf = testVRFKH @C_Crypto,
                 _poolPledge = Coin 5,
                 _poolCost = Coin 4,
-                _poolMargin = unsafeMkUnitInterval 0.7,
+                _poolMargin = unsafeBoundRational 0.7,
                 _poolRAcnt = RewardAcnt Testnet (testStakeCred @C_Crypto),
                 _poolOwners = Set.singleton testKeyHash2,
                 _poolRelays = StrictSeq.empty,
@@ -1279,7 +1280,7 @@ tests =
                 _poolVrf = testVRFKH @C_Crypto,
                 _poolPledge = Coin 5,
                 _poolCost = Coin 4,
-                _poolMargin = unsafeMkUnitInterval 0.7,
+                _poolMargin = unsafeBoundRational 0.7,
                 _poolRAcnt = RewardAcnt Testnet (testStakeCred @C_Crypto),
                 _poolOwners = Set.singleton testKeyHash2,
                 _poolRelays = StrictSeq.empty,

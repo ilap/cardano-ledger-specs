@@ -39,7 +39,7 @@ import Test.Shelley.Spec.Ledger.Utils
   ( RawSeed (..),
     mkKeyPair,
     mkVRFKeyPair,
-    unsafeMkUnitInterval,
+    unsafeBoundRational,
   )
 import Test.Tasty
 import Test.Tasty.HUnit (Assertion, assertFailure, testCase)
@@ -183,7 +183,7 @@ exampleShelleyGenesis =
     { sgSystemStart = posixSecondsToUTCTime $ realToFrac (1234566789 :: Integer),
       sgNetworkMagic = 4036000900,
       sgNetworkId = L.Testnet,
-      sgActiveSlotsCoeff = unsafeMkUnitInterval 0.259,
+      sgActiveSlotsCoeff = unsafeBoundRational 0.259,
       sgSecurityParam = 120842,
       sgEpochLength = EpochSize 1215,
       sgSlotsPerKESPeriod = 8541,
@@ -193,7 +193,7 @@ exampleShelleyGenesis =
       sgMaxLovelaceSupply = 71,
       sgProtocolParams =
         emptyPParams
-          { _d = unsafeMkUnitInterval . realToFrac $ (1.9e-2 :: Scientific),
+          { _d = unsafeBoundRational . realToFrac $ (1.9e-2 :: Scientific),
             _maxBBSize = 239857,
             _maxBHSize = 217569
           },
@@ -244,7 +244,7 @@ exampleShelleyGenesis =
           L._poolVrf = hashVerKeyVRF . snd $ mkVRFKeyPair (RawSeed 1 0 0 0 2),
           L._poolPledge = L.Coin 1,
           L._poolCost = L.Coin 5,
-          L._poolMargin = unsafeMkUnitInterval 0.25,
+          L._poolMargin = unsafeBoundRational 0.25,
           L._poolRAcnt = L.RewardAcnt L.Testnet Cast.aliceSHK,
           L._poolOwners = Set.singleton $ (hashKey . vKey) Cast.aliceStake,
           L._poolRelays = relays,

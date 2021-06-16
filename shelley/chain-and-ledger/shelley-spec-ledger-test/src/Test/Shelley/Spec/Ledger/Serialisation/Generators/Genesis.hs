@@ -46,7 +46,7 @@ import Shelley.Spec.Ledger.Genesis
 import Shelley.Spec.Ledger.PParams
 import Shelley.Spec.Ledger.Scripts
 import Shelley.Spec.Ledger.TxBody
-import Test.Shelley.Spec.Ledger.Utils (mkHash)
+import Test.Shelley.Spec.Ledger.Utils (mkHash, unsafeBoundRational)
 
 genShelleyGenesis :: Era era => Gen (ShelleyGenesis era)
 genShelleyGenesis =
@@ -54,7 +54,7 @@ genShelleyGenesis =
     <$> genUTCTime
     <*> genNetworkMagic
     <*> Gen.element [Mainnet, Testnet]
-    <*> genActiveCoeff
+    <*> genPositiveUnitInterval
     <*> Gen.word64 (Range.linear 1 1000000)
     <*> fmap EpochSize genSecurityParam
     <*> Gen.word64 (Range.linear 1 100000)
@@ -66,10 +66,7 @@ genShelleyGenesis =
     <*> fmap Map.fromList genGenesisDelegationList
     <*> fmap Map.fromList genFundsList
     <*> genStaking
-  where
-    genActiveCoeff = do
-      ui <- genUnitInterval
-      if ui == minBound then genActiveCoeff else pure ui
+
 
 genStaking :: CC.Crypto crypto => Gen (ShelleyGenesisStaking crypto)
 genStaking =
@@ -210,17 +207,22 @@ genProtVer =
     <$> genNatural (Range.linear 0 1000)
     <*> genNatural (Range.linear 0 1000)
 
--- | Only numbers in Scientific format can roundtrip JSON, so we only generate numbers
--- that can be represented in a decimal form and that can be represeted by Ratio Word64
 genUnitInterval :: Gen UnitInterval
-genUnitInterval = do
+genUnitInterval = genDecimalBoundedRational (Gen.word64 . Range.linear 0)
+
+genPositiveUnitInterval :: Gen PositiveUnitInterval
+genPositiveUnitInterval = genDecimalBoundedRational (Gen.word64 . Range.linear 1)
+
+-- | Only numbers in Scientific format can roundtrip JSON, so we only generate numbers
+-- that can be represented in a decimal form and that can be represeted by some bounded
+-- rational type
+genDecimalBoundedRational :: (Integral a, BoundedRational r) => (a -> Gen a) -> Gen r
+genDecimalBoundedRational gen = do
   let maxExp = 19
   denom <- (10 ^) <$> Gen.int (Range.linear 0 maxExp)
-  num <- Gen.word64 (Range.linear 0 denom)
-  let r = num % denom
-  case unitIntervalFromRational $ promoteRatio r of
-    Nothing -> error $ "Could not convert rational to unit: " ++ show r
-    Just ui -> pure ui
+  num <- gen denom
+  pure $ unsafeBoundRational $ toInteger num % toInteger denom
+
 
 genGenesisDelegationList ::
   CC.Crypto crypto =>

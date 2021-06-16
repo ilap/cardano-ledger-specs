@@ -56,9 +56,9 @@ import Cardano.Binary
 import Cardano.Ledger.BaseTypes
   ( ActiveSlotCoeff,
     UnitInterval,
+    BoundedRational (..),
     activeSlotVal,
     invalidKey,
-    unitIntervalToRational,
   )
 import Cardano.Ledger.Coin
   ( Coin (..),
@@ -151,8 +151,8 @@ leaderProbability :: ActiveSlotCoeff -> Rational -> UnitInterval -> Double
 leaderProbability activeSlotCoeff relativeStake decentralizationParameter =
   (1 - (1 - asc) ** s) * (1 - d')
   where
-    d' = realToFrac . unitIntervalToRational $ decentralizationParameter
-    asc = realToFrac . unitIntervalToRational . activeSlotVal $ activeSlotCoeff
+    d' = realToFrac . unboundRational $ decentralizationParameter
+    asc = realToFrac . unboundRational . activeSlotVal $ activeSlotCoeff
     s = realToFrac relativeStake
 
 samplePositions :: StrictSeq Double
@@ -304,7 +304,7 @@ desirability (a0, nOpt) r pool (PerformanceEstimate p) (Coin totalStake) =
     fTildeNumer = p * fromRational (coinToRational r * (z0 + min s z0 * a0))
     fTildeDenom = fromRational $ 1 + a0
     cost = (fromRational . coinToRational . _poolCost) pool
-    margin = (fromRational . unitIntervalToRational . _poolMargin) pool
+    margin = (fromRational . unboundRational . _poolMargin) pool
     tot = max 1 (fromIntegral totalStake)
     Coin pledge = _poolPledge pool
     s = fromIntegral pledge % tot
@@ -348,7 +348,7 @@ mkApparentPerformance ::
   Rational
 mkApparentPerformance d_ sigma blocksN blocksTotal
   | sigma == 0 = 0
-  | unitIntervalToRational d_ < 0.8 = beta / sigma
+  | unboundRational d_ < 0.8 = beta / sigma
   | otherwise = 1
   where
     beta = fromIntegral blocksN / fromIntegral (max 1 blocksTotal)
@@ -368,7 +368,7 @@ leaderRew f pool (StakeShare s) (StakeShare sigma)
         (coinToRational (f <-> c) * (m' + (1 - m') * s / sigma))
   where
     (c, m, _) = poolSpec pool
-    m' = unitIntervalToRational m
+    m' = unboundRational m
 
 -- | Calculate pool member reward
 memberRew ::
@@ -384,7 +384,7 @@ memberRew (Coin f') pool (StakeShare t) (StakeShare sigma)
       fromIntegral (f' - c) * (1 - m') * t / sigma
   where
     (Coin c, m, _) = poolSpec pool
-    m' = unitIntervalToRational m
+    m' = unboundRational m
 
 data RewardType = MemberReward | LeaderReward
   deriving (Eq, Show, Ord, Generic)

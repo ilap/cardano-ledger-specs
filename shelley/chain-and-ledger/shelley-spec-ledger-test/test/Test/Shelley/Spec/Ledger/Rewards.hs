@@ -54,10 +54,10 @@ import Cardano.Ledger.BaseTypes
     ShelleyBase,
     StrictMaybe (..),
     UnitInterval,
+    BoundedRational (..),
     activeSlotVal,
     epochInfo,
     mkActiveSlotCoeff,
-    unitIntervalToRational,
   )
 import Shelley.Spec.Ledger.Credential (Credential (..))
 import Shelley.Spec.Ledger.EpochBoundary
@@ -126,7 +126,7 @@ import Test.Shelley.Spec.Ledger.Serialisation.Generators ()
 import Test.Shelley.Spec.Ledger.Utils
   ( runShelleyBase,
     testGlobals,
-    unsafeMkUnitInterval,
+    unsafeBoundRational,
   )
 import Test.Tasty -- (TestTree, defaultMain, testGroup)
 import Test.Tasty.HUnit (testCaseInfo)
@@ -248,7 +248,7 @@ genMargin :: Gen UnitInterval
 genMargin = do
   let denom = 10
   numer <- choose (0, denom)
-  pure $ unsafeMkUnitInterval (numer % denom)
+  pure $ unsafeBoundRational (numer % denom)
 
 genPoolInfo :: forall crypto. CC.Crypto crypto => PoolSetUpArgs crypto Maybe -> Gen (PoolInfo crypto)
 genPoolInfo PoolSetUpArgs {poolPledge, poolCost, poolMargin, poolMembers} = do
@@ -284,7 +284,7 @@ genRewardPPs = do
   r <- g rhoRange
   pure $ emptyPParams {_d = d, _tau = t, _rho = r}
   where
-    g xs = unsafeMkUnitInterval <$> elements xs
+    g xs = unsafeBoundRational <$> elements xs
 
 genBlocksMade :: [PoolParams crypto] -> Gen (BlocksMade crypto)
 genBlocksMade pools = BlocksMade . Map.fromList <$> mapM f pools
@@ -300,7 +300,7 @@ rewardsBoundedByPot _ = property $ do
   pp <- genRewardPPs
   rewardPot <- genCoin 0 (fromIntegral $ maxLovelaceSupply testGlobals)
   undelegatedLovelace <- genCoin 0 (fromIntegral $ maxLovelaceSupply testGlobals)
-  asc <- mkActiveSlotCoeff . unsafeMkUnitInterval <$> elements [0.1, 0.2, 0.3]
+  asc <- mkActiveSlotCoeff . unsafeBoundRational <$> elements [0.1, 0.2, 0.3]
   bs@(BlocksMade blocks) <- genBlocksMade (fmap params pools)
   let totalBlocks = sum blocks
   silentSlots <- genNatural 0 (3 * totalBlocks) -- the '3 * sum blocks' is pretty arbitrary
@@ -368,7 +368,7 @@ rewardsProvenance _ = generate $ do
   pp <- genRewardPPs
   rewardPot <- genCoin 0 (fromIntegral $ maxLovelaceSupply testGlobals)
   undelegatedLovelace <- genCoin 0 (fromIntegral $ maxLovelaceSupply testGlobals)
-  asc <- mkActiveSlotCoeff . unsafeMkUnitInterval <$> elements [0.1, 0.2, 0.3]
+  asc <- mkActiveSlotCoeff . unsafeBoundRational <$> elements [0.1, 0.2, 0.3]
   bs@(BlocksMade blocks) <- genBlocksMade (fmap params pools)
   let totalBlocks = sum blocks
   silentSlots <- genNatural 0 (3 * totalBlocks) -- the '3 * sum blocks' is pretty arbitrary
@@ -647,20 +647,20 @@ createRUpdOld slotsPerEpoch b@(BlocksMade b') es@(EpochState acnt ss ls pr _ nm)
       deltaR1 =
         ( rationalToCoinViaFloor $
             min 1 eta
-              * unitIntervalToRational (_rho pr)
+              * unboundRational (_rho pr)
               * fromIntegral reserves
         )
-      d = unitIntervalToRational (_d pr)
+      d = unboundRational (_d pr)
       expectedBlocks =
         floor $
-          (1 - d) * unitIntervalToRational (activeSlotVal asc) * fromIntegral slotsPerEpoch
+          (1 - d) * unboundRational (activeSlotVal asc) * fromIntegral slotsPerEpoch
       -- TODO asc is a global constant, and slotsPerEpoch should not change often at all,
       -- it would be nice to not have to compute expectedBlocks every epoch
       eta
-        | unitIntervalToRational (_d pr) >= 0.8 = 1
+        | unboundRational (_d pr) >= 0.8 = 1
         | otherwise = blocksMade % expectedBlocks
       Coin rPot = _feeSS ss <> deltaR1
-      deltaT1 = floor $ unitIntervalToRational (_tau pr) * fromIntegral rPot
+      deltaT1 = floor $ unboundRational (_tau pr) * fromIntegral rPot
       _R = Coin $ rPot - deltaT1
       totalStake = circulation es maxSupply
       (rs_, newLikelihoods) =

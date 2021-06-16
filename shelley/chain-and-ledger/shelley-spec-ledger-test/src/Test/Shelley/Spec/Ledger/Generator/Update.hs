@@ -82,7 +82,7 @@ import Test.Shelley.Spec.Ledger.Generator.Core
 import Test.Shelley.Spec.Ledger.Utils
   ( GenesisKeyPair,
     epochFromSlotNo,
-    unsafeMkUnitInterval,
+    unsafeBoundRational,
   )
 import Cardano.Ledger.Core(PParamsDelta)
 
@@ -94,7 +94,7 @@ genRationalInThousands lower upper =
 
 genIntervalInThousands :: HasCallStack => Integer -> Integer -> Gen UnitInterval
 genIntervalInThousands lower upper =
-  unsafeMkUnitInterval <$> genRationalInThousands lower upper
+  unsafeBoundRational <$> genRationalInThousands lower upper
 
 genPParams :: Constants -> Gen (PParams era)
 genPParams c@(Constants {maxMinFeeA, maxMinFeeB}) =
@@ -186,7 +186,7 @@ genTau :: HasCallStack => Gen UnitInterval
 genTau = genIntervalInThousands 100 300
 
 genDecentralisationParam :: HasCallStack => Gen UnitInterval
-genDecentralisationParam = unsafeMkUnitInterval <$> QC.elements [0.1, 0.2 .. 1]
+genDecentralisationParam = unsafeBoundRational <$> QC.elements [0.1, 0.2 .. 1]
 -- ^ ^ TODO jc - generating d=0 takes some care, if there are no registered
 --  stake pools then d=0 deadlocks the system.
 

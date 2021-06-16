@@ -21,7 +21,7 @@ computeStabilityWindow ::
 computeStabilityWindow k asc =
   ceiling $ fromIntegral @_ @Double (3 * k) / fromRational f
   where
-    f = unitIntervalToRational . activeSlotVal $ asc
+    f = unboundRational . activeSlotVal $ asc
 
 -- | Calculate the randomness stabilisation window from the security param and
 -- the active slot coefficient.
@@ -35,4 +35,4 @@ computeRandomnessStabilisationWindow ::
 computeRandomnessStabilisationWindow k asc =
   ceiling $ fromIntegral @_ @Double (4 * k) / fromRational f
   where
-    f = unitIntervalToRational . activeSlotVal $ asc
+    f = unboundRational . activeSlotVal $ asc
