@@ -82,7 +82,6 @@ import Data.Coders
   )
 import Data.Coerce (coerce)
 import Data.Foldable (foldl', toList)
-import Data.Functor.Identity (Identity)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import Data.Proxy (Proxy (..))
@@ -656,8 +655,9 @@ data ScriptFailure c
   | IncompatibleBudget P.ExBudget
 
 evaluateTransactionExecutionUnits ::
-  forall era.
+  forall era m.
   ( Era era,
+    Monad m,
     Core.TxOut era ~ TxOut era,
     Core.Script era ~ Script era,
     Core.Value era ~ Mary.Value (Crypto era),
@@ -666,14 +666,17 @@ evaluateTransactionExecutionUnits ::
   ) =>
   Core.Tx era ->
   UTxO era ->
-  EpochInfo Identity ->
+  EpochInfo m ->
   SystemStart ->
   CostModel ->
-  Map
-    (ScriptHash (Crypto era))
-    (Either (ScriptFailure (Crypto era)) (RdmrPtr, ExUnits))
-evaluateTransactionExecutionUnits tx utxo ei sysS (CostModel costModel) =
-  Map.fromList $ map findAndCount neededPlutusScripts
+  m
+    ( Map
+        (ScriptHash (Crypto era))
+        (Either (ScriptFailure (Crypto era)) (RdmrPtr, ExUnits))
+    )
+evaluateTransactionExecutionUnits tx utxo ei sysS (CostModel costModel) = do
+  txinfo <- txInfo ei sysS utxo tx
+  pure $ Map.fromList $ map (findAndCount txinfo) neededPlutusScripts
   where
     note :: e -> Maybe a -> Either e a
     note _ (Just x) = Right x
@@ -693,8 +696,6 @@ evaluateTransactionExecutionUnits tx utxo ei sysS (CostModel costModel) =
         Just (PlutusScript bytes) -> pure $ Just bytes
       pure (sp, sh, msb)
 
-    txinfo = txInfo ei sysS utxo tx
-
     exBudgetToExUnits :: P.ExBudget -> Maybe ExUnits
     exBudgetToExUnits (P.ExBudget (P.ExCPU cpu) (P.ExMemory memory)) =
       ExUnits <$> convertCost cpu <*> convertCost memory
@@ -708,6 +709,7 @@ evaluateTransactionExecutionUnits tx utxo ei sysS (CostModel costModel) =
         i = toInteger ci
 
     findAndCount ::
+      P.TxInfo ->
       ( Alonzo.ScriptPurpose (Crypto era),
         ScriptHash (Crypto era),
         Maybe ShortByteString
@@ -715,7 +717,7 @@ evaluateTransactionExecutionUnits tx utxo ei sysS (CostModel costModel) =
       ( ScriptHash (Crypto era),
         Either (ScriptFailure (Crypto era)) (RdmrPtr, ExUnits)
       )
-    findAndCount (sp, sh, mScriptBytes) = (,) sh $ do
+    findAndCount inf (sp, sh, mScriptBytes) = (,) sh $ do
       r <-
         note (InvalidScriptPurpose sp) $
           strictMaybeToMaybe $ Alonzo.rdptr @era txb sp
@@ -727,8 +729,8 @@ evaluateTransactionExecutionUnits tx utxo ei sysS (CostModel costModel) =
           let TxOut _ _ mdh = txOut
           dh <- note (InvalidTxIn txin) $ strictMaybeToMaybe mdh
           dat <- note (MissingDatum dh) $ Map.lookup dh dats
-          pure [dat, rdmr, valContext txinfo sp]
-        _ -> pure [rdmr, valContext txinfo sp]
+          pure [dat, rdmr, valContext inf sp]
+        _ -> pure [rdmr, valContext inf sp]
       let pArgs = map getPlutusData args
 
       exUnits <- case snd $ P.evaluateScriptCounting P.Quiet costModel script pArgs of
